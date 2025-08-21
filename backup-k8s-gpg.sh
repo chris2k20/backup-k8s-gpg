@@ -132,8 +132,7 @@ if [[ "$mode" == "view" ]]; then
   fi
 
   tmp_agg=$(mktemp)
-  cleanup_view() { rm -f "$tmp_agg"; }
-  trap cleanup_view EXIT
+  trap 'rm -f "$tmp_agg"' EXIT
 
   for f in "${files[@]}"; do
     base=$(basename "$f")
@@ -243,7 +242,8 @@ normalize_resource() {
 }
 
 encrypt_and_write() {
-  local infile="$1" outfile="$2" tmp_enc="${outfile}.tmp"
+  local infile="$1" outfile="$2"
+  local tmp_enc="${outfile}.tmp"
   if [[ $symmetric -eq 1 ]]; then
     gpg --quiet --batch --yes --symmetric --cipher-algo AES256 -o "$tmp_enc" "$infile"
   else
