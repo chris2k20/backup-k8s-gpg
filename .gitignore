@@ -1,0 +1,26 @@
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+.tags
+
+# Python/Node/Build common
+node_modules/
+dist/
+build/
+venv/
+.env
+
+# Backups / Outputs (lokal)
+backup/
+out/
+*.yml
+!*.yml.gpg
+
+# Allow GitHub workflows YAML despite global *.yml ignore
+!.github/
+!.github/workflows/
+!.github/workflows/*.yml
+
+# Logs
+*.log
