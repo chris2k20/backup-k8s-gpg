@@ -2,13 +2,13 @@
 #
 # backup-k8s-gpg.sh
 #
-# Backup / View Tool für Kubernetes ConfigMaps & Secrets.
+# Backup / View tool for Kubernetes ConfigMaps & Secrets.
 #
-# MODI:
-#   Backup (Default): Ressourcen holen, normalisieren, verschlüsselt synchronisieren.
-#   View (--view):    Lokale verschlüsselte Dateien entschlüsseln & anzeigen.
+# MODES:
+#   Backup (default): fetch resources, normalize, and sync encrypted files.
+#   View (--view):    decrypt and display local encrypted files.
 #
-# DATEIFORMAT:
+# FILE FORMAT:
 #   configmap-<name>.yml.gpg
 #   secret-<name>.yml.gpg
 #
@@ -19,18 +19,18 @@
 # USAGE (View):
 #   backup-k8s-gpg.sh --view [pattern] -o <output_dir> [--redact] [--no-pager]
 #
-# Beispiele:
-#   Backup asymmetrisch: ./backup-k8s-gpg.sh -n prod -o backup/prod -r KEYID
-#   Backup symmetrisch:  ./backup-k8s-gpg.sh -n prod -o backup/prod -s
-#   Anzeigen alles:      ./backup-k8s-gpg.sh --view -o backup/prod
-#   Anzeigen gefiltert:  ./backup-k8s-gpg.sh --view postgres -o backup/prod
-#   Reduziert + no pager:./backup-k8s-gpg.sh --view --redact --no-pager -o backup/prod
+# Examples:
+#   Asymmetric backup: ./backup-k8s-gpg.sh -n prod -o backup/prod -r KEYID
+#   Symmetric backup:  ./backup-k8s-gpg.sh -n prod -o backup/prod -s
+#   View all:          ./backup-k8s-gpg.sh --view -o backup/prod
+#   View filtered:     ./backup-k8s-gpg.sh --view postgres -o backup/prod
+#   Redacted + no pager: ./backup-k8s-gpg.sh --view --redact --no-pager -o backup/prod
 #
 set -euo pipefail
 
 VERSION="1.2.0"
 
-# MODE Variablen
+# MODE variables
 mode="backup"
 view_pattern=""
 redact=0
@@ -51,38 +51,38 @@ die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 usage() {
   cat <<'EOF'
-backup-k8s-gpg.sh - Backup & Anzeige (View) von Kubernetes Secrets/ConfigMaps.
+backup-k8s-gpg.sh - Backup and View for Kubernetes Secrets/ConfigMaps.
 
-MODI:
-  (Default) Backup-Modus:
+MODES:
+  (Default) Backup mode:
     -n, --namespace <ns>   Namespace
-    -o, --output    <dir>  Zielverzeichnis
-    -r, --recipient <id>   GPG Empfänger (mehrfach möglich)
-    -s, --symmetric        Symmetrische Verschlüsselung
-        --prune            Entfernt lokale verwaiste Dateien
-    -i, --ignore   <pat>   Ignoriere Ressourcen nach Muster (mehrfach möglich)
-                           Muster gilt auf "<kind>-<name>", z.B. "configmap-kube-root-ca"
+    -o, --output    <dir>  Output directory
+    -r, --recipient <id>   GPG recipient (repeatable)
+    -s, --symmetric        Symmetric encryption (AES256)
+        --prune            Remove local orphaned files
+    -i, --ignore   <pat>   Ignore resources (repeatable)
+                           Matches on "<kind>-<name>", e.g. "configmap-kube-root-ca"
         --context <ctx>    kubectl context
-        --kubeconfig <pfad>
+        --kubeconfig <path>
 
-  View-Modus:
-    --view [pattern]       Entschlüsselt & zeigt Dateien aus -o
-                           pattern = Substring (optional). Ohne => alle.
-    --redact               Secret-Werte maskieren
-    --no-pager             Kein less, direkt STDOUT
+  View mode:
+    --view [pattern]       Decrypts & displays files from -o
+                           pattern = substring (optional). Empty => all.
+    --redact               Mask secret values
+    --no-pager             No less, print to STDOUT
 
-Gemeinsame Optionen:
-  -q, --quiet              Weniger Ausgabe
-  -h, --help               Hilfe
-      --version            Version ausgeben
+Common options:
+  -q, --quiet              Less output
+  -h, --help               Help
+      --version            Print version and exit
 
-Beispiele:
+Examples:
   Backup:     ./backup-k8s-gpg.sh -n prod -o out -r KEYID
-  View alle:  ./backup-k8s-gpg.sh --view -o out
+  View all:   ./backup-k8s-gpg.sh --view -o out
   View filt.: ./backup-k8s-gpg.sh --view postgres -o out
   Redact:     ./backup-k8s-gpg.sh --view --redact -o out
 
-WARNUNG: View zeigt Secrets im Klartext (sofern nicht --redact).
+WARNING: View prints secrets in plaintext unless --redact is used.
 EOF
   exit 0
 }
@@ -92,7 +92,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --view)
       mode="view"
-      # optional pattern (falls nächstes Argument nicht Option ist)
+      # optional pattern (if the next argument is not an option)
       if [[ $# -ge 2 && ! "$2" =~ ^- ]]; then
         view_pattern="$2"
         shift 2
@@ -113,26 +113,26 @@ while [[ $# -gt 0 ]]; do
     -q|--quiet) quiet=1; shift;;
     -h|--help) usage;;
     --version) echo "$VERSION"; exit 0;;
-    *) die "Unbekanntes Argument: $1";;
+    *) die "Unknown argument: $1";;
   esac
 done
 
 # MODE: VIEW
 if [[ "$mode" == "view" ]]; then
-  [[ -z "$output_dir" ]] && die "Für --view ist -o/--output erforderlich."
-  command -v gpg >/dev/null 2>&1 || die "gpg wird für View benötigt."
-  [[ -d "$output_dir" ]] || die "Output-Verzeichnis existiert nicht: $output_dir"
+  [[ -z "$output_dir" ]] && die "For --view, -o/--output is required."
+  command -v gpg >/dev/null 2>&1 || die "gpg is required for view mode."
+  [[ -d "$output_dir" ]] || die "Output directory does not exist: $output_dir"
 
   pattern="${view_pattern:-}"
   shopt -s nullglob
-  # Substring-Match: *pattern*
+  # Substring match: *pattern*
   if [[ -n "$pattern" ]]; then
     files=( "${output_dir}"/*"${pattern}"*.yml.gpg )
   else
     files=( "${output_dir}"/*.yml.gpg )
   fi
   if [[ ${#files[@]} -eq 0 ]]; then
-    die "Keine Dateien gefunden für Pattern '${pattern}'."
+    die "No files found for pattern '${pattern}'."
   fi
 
   tmp_agg=$(mktemp)
@@ -146,8 +146,8 @@ if [[ "$mode" == "view" ]]; then
         :
       fi
       if [[ $redact -eq 1 && "$base" == secret-* ]]; then
-        # Redact: Secret Daten maskieren
-          # Entschlüsseln -> verarbeiten Zeile für Zeile
+        # Redact: mask secret values
+          # Decrypt and process line by line
         gpg -d "$f" 2>/dev/null \
           | awk -v indata=0 '
               /^data:[[:space:]]*$/ { print; indata=1; next }
@@ -160,9 +160,9 @@ if [[ "$mode" == "view" ]]; then
               { print }
             '
       else
-        # Einfach ausgeben
+        # Simple output
         if ! gpg -d "$f" 2>/dev/null; then
-          echo "# FEHLER: Datei konnte nicht entschlüsselt werden."
+          echo "# ERROR: File could not be decrypted."
         fi
       fi
       echo
@@ -178,17 +178,17 @@ if [[ "$mode" == "view" ]]; then
 fi
 
 # MODE: BACKUP
-[[ -z "$namespace" ]] && die "Namespace erforderlich (-n) im Backup-Modus."
-[[ -z "$output_dir" ]] && die "Output-Verzeichnis erforderlich (-o) im Backup-Modus."
+[[ -z "$namespace" ]] && die "Namespace is required (-n) in backup mode."
+[[ -z "$output_dir" ]] && die "Output directory is required (-o) in backup mode."
 if [[ $symmetric -eq 1 && ${#recipients[@]} -gt 0 ]]; then
-  die "Nicht gleichzeitig symmetrisch (-s) und Empfänger (-r) nutzen."
+  die "Do not use both symmetric (-s) and recipients (-r) at the same time."
 fi
 if [[ $symmetric -eq 0 && ${#recipients[@]} -eq 0 ]]; then
-  die "Mindestens Empfänger (-r) oder -s angeben."
+  die "Provide at least one recipient (-r) or use -s for symmetric encryption."
 fi
 
 for bin in kubectl jq gpg; do
-  command -v "$bin" >/dev/null 2>&1 || die "Benötigtes Tool fehlt: $bin"
+  command -v "$bin" >/dev/null 2>&1 || die "Required tool missing: $bin"
 done
 
 # yq optional
@@ -200,21 +200,21 @@ if command -v yq >/dev/null 2>&1; then
     YQ_MODE="python"
   fi
 else
-  log "Hinweis: yq nicht gefunden – es wird JSON (als YAML-Datei) geschrieben."
+  log "Note: yq not found – will write JSON (in a .yml file)."
 fi
 
 mkdir -p "$output_dir"
-[[ -d "$output_dir" ]] || die "Kann Output-Verzeichnis nicht anlegen: $output_dir"
+[[ -d "$output_dir" ]] || die "Cannot create output directory: $output_dir"
 
 KCTL=(kubectl)
 [[ -n "$kube_context" ]] && KCTL+=(--context "$kube_context")
 [[ -n "$kubeconfig" ]] && KCTL+=(--kubeconfig "$kubeconfig")
 
-"${KCTL[@]}" get ns "$namespace" >/dev/null 2>&1 || die "Namespace nicht erreichbar: $namespace"
+"${KCTL[@]}" get ns "$namespace" >/dev/null 2>&1 || die "Namespace not reachable: $namespace"
 
-log "Hole ConfigMaps..."
+log "Fetching ConfigMaps..."
 mapfile -t configmaps < <("${KCTL[@]}" get configmaps -n "$namespace" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' || true)
-log "Hole Secrets..."
+log "Fetching Secrets..."
 mapfile -t secrets < <("${KCTL[@]}" get secrets -n "$namespace" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' || true)
 
 normalize_resource() {
@@ -239,7 +239,7 @@ normalize_resource() {
     mikefarah) printf '%s' "$json" | yq -P ;;
     python)    printf '%s' "$json" | yq -y '.' ;;
     none)
-      echo "# WARN: Keine yq Installation – Inhalt ist JSON"
+      echo "# WARN: No yq installation – content is JSON"
       printf '%s\n' "$json"
       ;;
   esac
@@ -280,7 +280,7 @@ process_resource() {
   local changed=0
 
   if ! normalize_resource "$kind" "$name" > "$tmp_plain"; then
-    log "Fehler beim Lesen ${kind}/${name} – überspringe."
+    log "Error reading ${kind}/${name} – skipping."
     rm -f "$tmp_plain" "$tmp_dec"
     return
   fi
@@ -292,7 +292,7 @@ process_resource() {
         changed=1
       fi
     else
-      log "Bestehende Datei nicht entschlüsselbar – schreibe neu."
+      log "Existing file cannot be decrypted – writing fresh."
       changed=1
     fi
   else
@@ -300,10 +300,10 @@ process_resource() {
   fi
 
   if [[ $changed -eq 1 ]]; then
-    log "Aktualisiere ${lower_kind}/${name} -> $(basename "$outfile")"
+    log "Updating ${lower_kind}/${name} -> $(basename "$outfile")"
     encrypt_and_write "$tmp_plain" "$outfile"
   else
-    log "Unverändert ${lower_kind}/${name}"
+    log "Unchanged ${lower_kind}/${name}"
   fi
 
   rm -f "$tmp_plain" "$tmp_dec"
@@ -313,7 +313,7 @@ declare -A should_exist=()
 for cm in "${configmaps[@]}"; do
   [[ -n "$cm" ]] || continue
   if should_ignore "configmap-${cm}"; then
-    log "Ignoriere configmap/${cm}"
+    log "Ignoring configmap/${cm}"
     continue
   fi
   should_exist["configmap-${cm}.yml.gpg"]=1
@@ -322,11 +322,11 @@ done
 for sec in "${secrets[@]}"; do
   [[ -n "$sec" ]] || continue
   if [[ "$sec" =~ ^default-token- ]] || [[ "$sec" =~ -token- ]]; then
-    log "Ignoriere secret/${sec} (ServiceAccount-Token)"
+    log "Ignoring secret/${sec} (ServiceAccount token)"
     continue
   fi
   if should_ignore "secret-${sec}"; then
-    log "Ignoriere secret/${sec}"
+    log "Ignoring secret/${sec}"
     continue
   fi
   should_exist["secret-${sec}.yml.gpg"]=1
@@ -334,16 +334,16 @@ for sec in "${secrets[@]}"; do
 done
 
 if [[ $prune -eq 1 ]]; then
-  log "Prune verwaister Dateien..."
+  log "Pruning orphaned files..."
   shopt -s nullglob
   for f in "${output_dir}"/*.yml.gpg; do
     base=$(basename "$f")
     if [[ -z "${should_exist[$base]:-}" ]]; then
-      log "Lösche verwaist: $base"
+      log "Removing orphan: $base"
       rm -f "$f"
     fi
   done
 fi
 
-log "Fertig. Output: $output_dir"
+log "Done. Output: $output_dir"
 exit 0
