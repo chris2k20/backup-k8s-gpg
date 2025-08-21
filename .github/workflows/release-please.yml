@@ -14,8 +14,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Release Please
-        uses: google-github-actions/release-please-action@v4
+        uses: googleapis/release-please-action@v4
         with:
           release-type: simple
           manifest-file: .release-please-manifest.json
           config-file: release-please-config.json
+          # If your org/repo forbids GITHUB_TOKEN from creating PRs, create a PAT
+          # (repo scope) on a bot user, save it as secret RELEASE_PLEASE_TOKEN,
+          # and uncomment the next line:
+          # token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
