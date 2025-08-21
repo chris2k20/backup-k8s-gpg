@@ -39,6 +39,7 @@ use_pager=1
 namespace=""
 output_dir=""
 declare -a recipients=()
+declare -a ignore_patterns=()
 symmetric=0
 prune=0
 quiet=0
@@ -59,6 +60,8 @@ MODI:
     -r, --recipient <id>   GPG Empfänger (mehrfach möglich)
     -s, --symmetric        Symmetrische Verschlüsselung
         --prune            Entfernt lokale verwaiste Dateien
+    -i, --ignore   <pat>   Ignoriere Ressourcen nach Muster (mehrfach möglich)
+                           Muster gilt auf "<kind>-<name>", z.B. "configmap-kube-root-ca"
         --context <ctx>    kubectl context
         --kubeconfig <pfad>
 
@@ -102,6 +105,7 @@ while [[ $# -gt 0 ]]; do
     -n|--namespace) namespace="$2"; shift 2;;
     -o|--output) output_dir="$2"; shift 2;;
     -r|--recipient) recipients+=("$2"); shift 2;;
+    -i|--ignore) ignore_patterns+=("$2"); shift 2;;
     -s|--symmetric) symmetric=1; shift;;
     --prune) prune=1; shift;;
     --context) kube_context="$2"; shift 2;;
@@ -254,6 +258,18 @@ encrypt_and_write() {
   mv "$tmp_enc" "$outfile"
 }
 
+# returns 0 (true) if the combined key ("<kind>-<name>") should be ignored
+should_ignore() {
+  local key="$1"
+  for pat in "${ignore_patterns[@]:-}"; do
+    [[ -n "$pat" ]] || continue
+    if [[ "$key" == *"$pat"* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 process_resource() {
   local kind="$1" name="$2"
   local lower_kind
@@ -296,13 +312,22 @@ process_resource() {
 declare -A should_exist=()
 for cm in "${configmaps[@]}"; do
   [[ -n "$cm" ]] || continue
+  if should_ignore "configmap-${cm}"; then
+    log "Ignoriere configmap/${cm}"
+    continue
+  fi
   should_exist["configmap-${cm}.yml.gpg"]=1
   process_resource "ConfigMap" "$cm"
 done
 for sec in "${secrets[@]}"; do
   [[ -n "$sec" ]] || continue
   if [[ "$sec" =~ ^default-token- ]] || [[ "$sec" =~ -token- ]]; then
-    :
+    log "Ignoriere secret/${sec} (ServiceAccount-Token)"
+    continue
+  fi
+  if should_ignore "secret-${sec}"; then
+    log "Ignoriere secret/${sec}"
+    continue
   fi
   should_exist["secret-${sec}.yml.gpg"]=1
   process_resource "Secret" "$sec"
