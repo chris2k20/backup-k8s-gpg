@@ -45,6 +45,8 @@ prune=0
 quiet=0
 kube_context=""
 kubeconfig=""
+decrypt_dir=""
+overwrite=0
 
 log() { [[ $quiet -eq 0 ]] && printf '[%s] %s\n' "$(date +'%Y-%m-%d %H:%M:%S')" "$*" >&2; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
@@ -70,6 +72,10 @@ MODES:
                            pattern = substring (optional). Empty => all.
     --redact               Mask secret values
     --no-pager             No less, print to STDOUT
+
+  Decrypt mode:
+    --decrypt-dir <dir>    Decrypt all *.yml.gpg in directory to *.yml (plaintext)
+    --overwrite            Overwrite existing plaintext files when used with --decrypt-dir
 
 Common options:
   -q, --quiet              Less output
@@ -110,12 +116,44 @@ while [[ $# -gt 0 ]]; do
     --prune) prune=1; shift;;
     --context) kube_context="$2"; shift 2;;
     --kubeconfig) kubeconfig="$2"; shift 2;;
+    --decrypt-dir) decrypt_dir="$2"; shift 2;;
+    --overwrite) overwrite=1; shift;;
     -q|--quiet) quiet=1; shift;;
     -h|--help) usage;;
     --version) echo "$VERSION"; exit 0;;
     *) die "Unknown argument: $1";;
   esac
 done
+
+# MODE: DECRYPT DIRECTORY
+if [[ -n "$decrypt_dir" ]]; then
+  [[ -d "$decrypt_dir" ]] || die "Decrypt directory does not exist: $decrypt_dir"
+  command -v gpg >/dev/null 2>&1 || die "gpg is required for decrypt mode."
+  shopt -s nullglob
+  umask 077
+  log "Decrypting all *.yml.gpg in: $decrypt_dir"
+  found=0
+  for f in "$decrypt_dir"/*.yml.gpg; do
+    [[ -e "$f" ]] || continue
+    found=1
+    out="${f%.gpg}"
+    if [[ -f "$out" && $overwrite -ne 1 ]]; then
+      log "Skip existing plaintext (use --overwrite to replace): $(basename "$out")"
+      continue
+    fi
+    if gpg -d "$f" > "$out" 2>/dev/null; then
+      chmod 600 "$out" 2>/dev/null || true
+      log "Decrypted: $(basename "$f") -> $(basename "$out")"
+    else
+      rm -f "$out"
+      log "Error decrypting: $(basename "$f")"
+    fi
+  done
+  if [[ $found -eq 0 ]]; then
+    die "No *.yml.gpg files found in $decrypt_dir"
+  fi
+  exit 0
+fi
 
 # MODE: VIEW
 if [[ "$mode" == "view" ]]; then
